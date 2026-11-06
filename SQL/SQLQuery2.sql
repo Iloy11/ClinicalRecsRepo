@@ -255,9 +255,9 @@ WITH patient_scores AS (
     SELECT
         readmission_30_days,
         (
-            -- Medication Adherence Points (Max 5)
+            -- Medication Adherence Points (Max 3)
             CASE 
-                WHEN LOWER(medication_adherence) = 'low' THEN 5
+                WHEN LOWER(medication_adherence) = 'low' THEN 3
                 WHEN LOWER(medication_adherence) = 'medium' THEN 2
                 ELSE 0 
             END +
@@ -285,7 +285,7 @@ SELECT
     CASE 
         WHEN risk_score BETWEEN 0 AND 2 THEN 'Low Risk (0-2 pts)'
         WHEN risk_score BETWEEN 3 AND 5 THEN 'Medium Risk (3-5 pts)'
-        ELSE 'High Risk (6-9 pts)'
+        ELSE 'High Risk (6-7 pts)'
     END AS risk_tier,
     COUNT(*) AS total_patients,
     SUM(CASE WHEN readmission_30_days = 'Yes' THEN 1 ELSE 0 END) AS readmitted_patients,
@@ -299,7 +299,7 @@ GROUP BY
     CASE 
         WHEN risk_score BETWEEN 0 AND 2 THEN 'Low Risk (0-2 pts)'
         WHEN risk_score BETWEEN 3 AND 5 THEN 'Medium Risk (3-5 pts)'
-        ELSE 'High Risk (6-9 pts)'
+        ELSE 'High Risk (6-7 pts)'
     END
 ORDER BY 
     MIN(risk_score);
