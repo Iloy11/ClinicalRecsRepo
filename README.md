@@ -42,8 +42,8 @@ $$
 \text{Risk Score} = \text{Adherence Points} + \text{Hypertension Points} + \text{Diagnosis Points} + \text{Age Points}
 $$
 
-* **Medication Adherence:** Low (+5 pts), Medium (+2 pts), High (0 pts)
-* **Hypertension Stage:** Stage 2 / Crisis (+2 pts), Stage 1 (+1 pt), Normal / Elevated (0 pts)
+* **Medication Adherence:** Low (+3 pts), Medium (+2 pts), High (0 pts)
+* **Hypertension Stage:** Stage 2 (+2 pts), Hypertensive Crisis (+1 pt), Normal / Elevated / Stage 1 (0 pts)
 * **Primary Diagnosis:** Orthopedics (+1 pt), Other Specialties (0 pts)
 * **Age:** Age $\ge 65$ (+1 pt), Age < 65 (0 pts)
 
@@ -52,58 +52,54 @@ $$
 The weighted scoring algorithm was executed using T-SQL query logic:
 
 ```sql
-WITH patient_scores AS (
+ScoredPatients AS (
+    -- Step 2: Calculate the 0-7 point risk score using the validated predictors
     SELECT 
-        readmission_30_days,
-        (
-            -- Medication Adherence Points (Max 5)
+          patient_age
+        , systolic_bp
+        , diastolic_bp
+        , HypertensionStage
+        , primary_diagnosis
+        , medication_adherence
+        , readmission_30_days
+        , (
             CASE 
-                WHEN LOWER(medication_adherence) = 'low' THEN 5
+                WHEN LOWER(medication_adherence) = 'low' THEN 3
                 WHEN LOWER(medication_adherence) = 'medium' THEN 2
                 ELSE 0 
             END +
-            -- Blood Pressure Points (Max 2)
             CASE 
-                WHEN systolic >= 140 OR diastolic >= 90 THEN 2
-                WHEN systolic >= 130 OR diastolic >= 80 THEN 1
+                WHEN HypertensionStage = 'Stage 2 Hypertension' THEN 2 
+                WHEN HypertensionStage = 'Hypertensive Crisis' THEN 1
                 ELSE 0 
             END +
-            -- Primary Diagnosis Points (Max 1)
             CASE 
-                WHEN LOWER(primary_diagnosis) = 'orthopedics' THEN 1 
+                WHEN primary_diagnosis = 'Orthopedics' THEN 1 
                 ELSE 0 
             END +
-            -- Age Points (Max 1)
             CASE 
-                WHEN age >= 65 THEN 1 
-                ELSE 0 
+                WHEN patient_age > 65 THEN 1 ELSE 0 
             END
-        ) AS risk_score
-    FROM 
-        healthcare_patients
+          ) AS RiskScore
+    FROM DerivedHypertension
 )
+-- Step 3: Assign Risk Tiers and output final dataset for Tableau
 SELECT 
-    CASE 
-        WHEN risk_score BETWEEN 0 AND 2 THEN 'Low Risk (0-2 pts)'
-        WHEN risk_score BETWEEN 3 AND 5 THEN 'Medium Risk (3-5 pts)'
-        ELSE 'High Risk (6-9 pts)'
-    END AS risk_tier,
-    COUNT(*) AS total_patients,
-    SUM(CASE WHEN readmission_30_days = 1 THEN 1 ELSE 0 END) AS readmitted_patients,
-    ROUND(
-        SUM(CASE WHEN readmission_30_days = 1 THEN 1.0 ELSE 0.0 END) * 100.0 / COUNT(*), 
-        2
-    ) AS readmission_rate_pct
-FROM 
-    patient_scores
-GROUP BY 
-    CASE 
-        WHEN risk_score BETWEEN 0 AND 2 THEN 'Low Risk (0-2 pts)'
-        WHEN risk_score BETWEEN 3 AND 5 THEN 'Medium Risk (3-5 pts)'
-        ELSE 'High Risk (6-9 pts)'
-    END
-ORDER BY 
-    MIN(risk_score);
+      patient_age
+    , systolic_bp
+    , diastolic_bp
+    , HypertensionStage
+    , primary_diagnosis
+    , medication_adherence
+    , readmission_30_days
+    , RiskScore
+    , CASE 
+        WHEN RiskScore BETWEEN 0 AND 2 THEN 'Low Risk (5%)'
+        WHEN RiskScore BETWEEN 3 AND 5 THEN 'Medium Risk (13%)'
+        ELSE 'High Risk (29%)'
+      END AS RiskTier
+FROM ScoredPatients;
+GO
 ```
 
 ## 🎯 Validation Results & Operational Impact
@@ -114,13 +110,13 @@ The model demonstrates strong predictive performance with clear separation acros
 +------------------------+------------------+-----------------------+----------------------+
 | Risk Tier              | Score Range      | Readmission Rate (%)  | Operational Profile  |
 +------------------------+------------------+-----------------------+----------------------+
-| Low Risk               | 0 - 2 pts        | 5.0%                  | Standard Discharge   |
-| Medium Risk            | 3 - 5 pts        | 13.0%                 | 7-Day Follow-Up      |
-| High Risk              | 6 - 9 pts        | 29.0%                 | Targeted Care Plan   |
+| Low Risk               | 0 - 2 pts        | 6.0%                  | Standard Discharge   |
+| Medium Risk            | 3 - 5 pts        | 18.0%                 | 7-Day Follow-Up      |
+| High Risk              | 6 - 7 pts        | 29.0%                 | Targeted Care Plan   |
 +------------------------+------------------+-----------------------+----------------------+
 ```
 
 ### Key Highlights:
 
-* **Nearly $6\times$ Risk Gradient:** Patients in the High Risk tier are almost **6 times more likely** to be readmitted compared to those in the Low Risk tier (29% vs. 5%).
+* **Nearly $5\times$ Risk Gradient:** Patients in the High Risk tier are almost **5 times more likely** to be readmitted compared to those in the Low Risk tier (29% vs. 6%).
 * **Actionable Resource Allocation:** Clinical staff can automatically prioritize high-touch post-discharge interventions (e.g., bedside pharmacy delivery, home health visits) specifically for patients scoring $\ge 6$ points.
